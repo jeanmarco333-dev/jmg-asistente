@@ -34,12 +34,41 @@ export default function Home() {
     if (!question.trim()) return
     setBusy(true)
     setAnswer("")
-    const { data, error } = await supabase.functions.invoke("grupo-estar-ai", {
-      body: { pregunta: question.trim() },
-    })
-    if (error) setAnswer("No pude procesar la consulta. Intentá nuevamente.")
-    else setAnswer(data?.respuesta ?? "La consulta no devolvió una respuesta.")
-    setBusy(false)
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+
+      if (!accessToken) {
+        setAnswer("Diagnóstico: no hay una sesión activa de Supabase. Cerrá sesión e ingresá nuevamente.")
+        return
+      }
+
+      const { data, error } = await supabase.functions.invoke("grupo-estar-ai", {
+        body: { pregunta: question.trim() },
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+
+      if (error) {
+        let detail = error.message || "Error desconocido"
+        const context = (error as any).context
+        if (context && typeof context.json === "function") {
+          try {
+            const body = await context.json()
+            detail += ` | Respuesta: ${JSON.stringify(body)}`
+          } catch {
+            // Si la respuesta no es JSON, conservamos el mensaje original.
+          }
+        }
+        setAnswer(`Diagnóstico Supabase: ${detail}`)
+      } else {
+        setAnswer(data?.respuesta ?? `Respuesta recibida: ${JSON.stringify(data)}`)
+      }
+    } catch (err) {
+      setAnswer(`Diagnóstico inesperado: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (loadingSession) return <main className="center">Cargando…</main>
